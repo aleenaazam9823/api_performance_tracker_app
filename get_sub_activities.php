@@ -13,16 +13,16 @@ if ($conn->connect_error) {
     exit();
 }
 
-if (!isset($_GET['activity_part_id'])) {
+if (!isset($_GET['activity_parts_id'])) {
     http_response_code(400);
-    echo json_encode(["success" => false, "message" => "Missing activity_part_id parameter"]);
+    echo json_encode(["success" => false, "message" => "Missing activity_parts_id parameter"]);
     exit();
 }
 
-$activity_part_id = intval($_GET['activity_part_id']);
+$activity_parts_id = intval($_GET['activity_parts_id']);
 
 // Query sub_activities for given activity_part_id and not deleted
-$subActivitiesSql = "SELECT id, title, status, is_deleted, created_at, modified_at 
+$subActivitiesSql = "SELECT id, activity_parts_id, title, status, is_deleted, created_at, modified_at 
                      FROM sub_activities 
                      WHERE activity_parts_id = ? AND is_deleted = 0";
 
@@ -32,7 +32,7 @@ if (!$stmt) {
     echo json_encode(["success" => false, "message" => "Prepare failed: " . $conn->error]);
     exit();
 }
-$stmt->bind_param("i", $activity_part_id);
+$stmt->bind_param("i", $activity_parts_id);
 $stmt->execute();
 $subActivitiesResult = $stmt->get_result();
 
@@ -60,20 +60,20 @@ while ($sub = $subActivitiesResult->fetch_assoc()) {
 
     $responsibles = [];
     while ($resp = $respResult->fetch_assoc()) {
-        $fullName = trim($resp['first_name'] . ' ' . $resp['last_name']);
-       $responsibles[] = [
-    "sub_activity_responsible_id" => $resp['sar_id'],
-    "responsible_id" => $resp['responsible_id'],
-    "first_name" => $resp['first_name'],    // send separately
-    "last_name" => $resp['last_name'],      // send separately
-    "is_deleted" => (int)$resp['is_deleted'],
-    "assigned_at" => $resp['assigned_at'],
-];
-
+        $responsibles[] = [
+            "sub_activity_responsible_id" => $resp['sar_id'],
+            "responsible_id" => $resp['responsible_id'],
+            "first_name" => $resp['first_name'],
+            "last_name" => $resp['last_name'],
+            "is_deleted" => (int)$resp['is_deleted'],
+            "assigned_at" => $resp['assigned_at'],
+        ];
     }
+    $respStmt->close();
 
     $sub_activities[] = [
         "id" => $sub['id'],
+        "activity_parts_id" => $sub['activity_parts_id'],  // Important to include this!
         "title" => $sub['title'],
         "status" => $sub['status'],
         "is_deleted" => (int)$sub['is_deleted'],
@@ -81,8 +81,6 @@ while ($sub = $subActivitiesResult->fetch_assoc()) {
         "modified_at" => $sub['modified_at'],
         "responsibles" => $responsibles,
     ];
-
-    $respStmt->close();
 }
 
 $stmt->close();
