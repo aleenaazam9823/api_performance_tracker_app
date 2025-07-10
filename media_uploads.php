@@ -117,21 +117,20 @@ if (!empty($_FILES['media_upload']['name'][0])) {
                     $completed_by
                 ]);
 
-                // Update sub_activity to completed
-                $updateStmt = $pdo->prepare("
+                // Mark sub-activity as completed
+                $updateSubStmt = $pdo->prepare("
                     UPDATE sub_activities 
                     SET status = 'completed', modified_at = NOW() 
                     WHERE id = ?
                 ");
-                $updateStmt->execute([$sub_activity_id]);
+                $updateSubStmt->execute([$sub_activity_id]);
 
-                // === CHECK IF ALL SUB-ACTIVITIES ARE COMPLETED ===
+                // === CHECK IF ALL SUB-ACTIVITIES ARE COMPLETED UNDER THIS PART ===
                 $getPartStmt = $pdo->prepare("SELECT activity_parts_id FROM sub_activities WHERE id = ?");
                 $getPartStmt->execute([$sub_activity_id]);
                 $activityPartId = $getPartStmt->fetchColumn();
 
                 if ($activityPartId) {
-                    // Check if any remaining sub-activities are still not completed
                     $checkIncompleteStmt = $pdo->prepare("
                         SELECT COUNT(*) FROM sub_activities 
                         WHERE activity_parts_id = ? AND status != 'completed' AND is_deleted = 0
@@ -140,13 +139,54 @@ if (!empty($_FILES['media_upload']['name'][0])) {
                     $incompleteCount = $checkIncompleteStmt->fetchColumn();
 
                     if ($incompleteCount == 0) {
-                        // All sub-activities completed; mark the activity_part as completed
+                        // Mark the part as completed
                         $updatePartStmt = $pdo->prepare("
                             UPDATE activity_parts 
                             SET status = 'completed' 
                             WHERE id = ?
                         ");
                         $updatePartStmt->execute([$activityPartId]);
+                    }
+
+                    // === ACTIVITY STATUS & PERCENT COMPLETE UPDATE ===
+                    $activityIdStmt = $pdo->prepare("SELECT activity_id FROM activity_parts WHERE id = ?");
+                    $activityIdStmt->execute([$activityPartId]);
+                    $activityId = $activityIdStmt->fetchColumn();
+
+                    if ($activityId) {
+                        $countSubStmt = $pdo->prepare("
+                            SELECT COUNT(*) as total,
+                                   SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+                            FROM sub_activities 
+                            WHERE is_deleted = 0 AND activity_parts_id IN (
+                                SELECT id FROM activity_parts WHERE activity_id = ?
+                            )
+                        ");
+                        $countSubStmt->execute([$activityId]);
+                        $counts = $countSubStmt->fetch(PDO::FETCH_ASSOC);
+
+                        $totalSub = (int)$counts['total'];
+                        $completedSub = (int)$counts['completed'];
+
+                        if ($totalSub > 0) {
+                            $percent = round(($completedSub / $totalSub) * 100);
+
+                            if ($percent == 0) {
+                                $status = 'Pending';
+                            } elseif ($percent < 100) {
+                                $status = 'In Progress';
+                            } else {
+                                $status = 'Completed';
+                            }
+
+                            // Update activity
+                            $updateActivityStmt = $pdo->prepare("
+                                UPDATE activities 
+                                SET percent_complete = ?, status = ? 
+                                WHERE id = ?
+                            ");
+                            $updateActivityStmt->execute([$percent, $status, $activityId]);
+                        }
                     }
                 }
 
@@ -187,4 +227,3 @@ if (!empty($_FILES['media_upload']['name'][0])) {
     ]);
 }
 ?>
-    
